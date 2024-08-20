@@ -31,10 +31,10 @@ struct network_console {
 };
 
 /* Incoming data is read into this buffer */
-char buf[MAX_PAYLOAD_SIZE];
+static char buf[MAX_PAYLOAD_SIZE];
 static struct network_console network_console = {};
 
-/* 
+/*
  * This function will be called from the network stack on any networking event, such as receiving data.
  * If you have a registered handler to receive incoming data, it gets called from here. 
  */
@@ -44,6 +44,7 @@ static void network_console_recv_handler(uint16_t ev, struct pico_socket *s)
         int read = 0;
         do {
             read = pico_socket_recvfrom(network_console.pico_socket, buf, MAX_PAYLOAD_SIZE, &network_console.peer, &network_console.port);
+            ZF_LOGE("%d\n", read);
             for (int i = 0; i < read; i++) {
                 network_console.handler(&network_console, buf[i]);
             }

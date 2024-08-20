@@ -68,7 +68,8 @@ target_link_libraries(
     sel4
     elf
     cpio
-    networkconsole 
+    networkconsole
+	debugger
     clock
     sel4cspace
     aos

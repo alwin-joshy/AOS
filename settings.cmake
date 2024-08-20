@@ -14,6 +14,8 @@ cmake_minimum_required(VERSION 3.7.2)
 # set the build platform
 set(PLATFORM odroidc2 CACHE STRING "" FORCE)
 
+add_compile_options(-mno-outline-atomics)
+
 # build all libs as static
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 

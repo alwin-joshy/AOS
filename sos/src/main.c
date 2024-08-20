@@ -548,6 +548,34 @@ void init_muslc(void)
     muslcsys_install_syscall(__NR_madvise, sys_madvise);
 }
 
+void blah(struct network_console *nconn, char c) {
+
+}
+
+struct UARTRecvBuf {
+    unsigned int head;
+    unsigned int tail;
+    char data[2048];
+};
+
+struct UARTRecvBuf *uart_recv_buf = 0xA0000000;
+
+int serial_rcv_callback(void *data, seL4_Word irq, seL4_IRQHandler irq_handler) {
+    printf("hello there\n");
+}
+
+void serial_rcv_init() {
+    seL4_Error err = map_frame(&cspace, seL4_CapUARTRecvBuffer, seL4_CapInitThreadVSpace,
+                               (seL4_Word) uart_recv_buf, seL4_AllRights, seL4_ARM_Default_VMAttributes);
+    ZF_LOGF_IFERR(err, "Failed to map uart recieve buffer");
+
+
+    seL4_IRQHandler irq_handler = 0;
+    int init_irq_err = sos_register_irq_handler(0xfff, false, serial_rcv_callback, NULL, &irq_handler);
+    ZF_LOGF_IF(init_irq_err != 0, "Failed to initialise IRQ");
+    seL4_IRQHandler_Ack(irq_handler);
+}
+
 NORETURN void *main_continued(UNUSED void *arg)
 {
     /* Initialise other system compenents here */
@@ -570,9 +598,22 @@ NORETURN void *main_continued(UNUSED void *arg)
      * so touching the watchdog timers here is not recommended!) */
     void *timer_vaddr = sos_map_device(&cspace, PAGE_ALIGN_4K(TIMER_MAP_BASE), PAGE_SIZE_4K);
 
+    /* Initialize the serial */
+    serial_rcv_init();
+
     /* Initialise the network hardware. */
     printf("Network init\n");
     network_init(&cspace, timer_vaddr, ntfn);
+
+    /* Initialize the debugger */
+    printf("Debugger init\n");
+    debugger_init();
+
+    /* Initialize the netconn */
+    printf("Netconn init\n");
+    struct network_console *nconn = network_console_init();
+
+    network_console_register_handler(nconn, blah);
 
     /* Initialises the timer */
     printf("Timer init\n");

@@ -95,6 +95,8 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
      * on top of the stack for sos */
     static seL4_Word curr_ipc_buf = SOS_IPC_BUFFER;
 
+    ZF_LOGE("AAAAAAAAAAAAAA Creating SOS thread");
+
     sos_thread_t *new_thread = malloc(sizeof(*new_thread));
     if (new_thread == NULL) {
         return NULL;
