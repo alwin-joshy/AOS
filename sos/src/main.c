@@ -41,6 +41,7 @@
 #include "tests.h"
 #include "utils.h"
 #include "threads.h"
+#include "debugger.h"
 
 #include <aos/vsyscall.h>
 
@@ -558,7 +559,6 @@ struct UARTRecvBuf {
     char data[2048];
 };
 
-struct UARTRecvBuf *uart_recv_buf = 0xA0000000;
 
 int serial_rcv_callback(void *data, seL4_Word irq, seL4_IRQHandler irq_handler) {
     printf("hello there\n");
@@ -620,6 +620,11 @@ NORETURN void *main_continued(UNUSED void *arg)
     start_timer(timer_vaddr);
     /* You will need to register an IRQ handler for the timer here.
      * See "irq.h". */
+
+
+    /* Start the debugger thread */
+    thread_create(debugger_main, )
+
 
     /* Start the user application */
     printf("Start first process\n");

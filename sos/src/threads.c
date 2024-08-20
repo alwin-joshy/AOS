@@ -80,22 +80,40 @@ static void thread_trampoline(sos_thread_t *thread, thread_main_f *function, voi
     sel4runtime_set_tls_base(thread->tls_base);
     seL4_SetIPCBuffer((seL4_IPCBuffer *) thread->ipc_buffer_vaddr);
     current_thread = thread;
+    /* @alwin: Register to GDB */
     function(arg);
+    /* @alwin: Deregister from GDB */
     thread_suspend(thread);
 }
+
+
+sos_thread_t *debugger_thread_create(thread_main_f function, void *arg, seL4_Word badge,
+                                     bool resume, seL4_CPtr bound_ntfn)
+{
+
+    thread_create_generic(function, arg, badge, resume, seL4_MaxPrio, bound_ntfn);
+
+}
+
+sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, bool resume)
+{
+    thread_create_generic(function, arg, badge, resume, SOS_THREAD_PRIORITY, 0);
+}
+
 
 /*
  * Spawn a new kernel (SOS) thread to execute function with arg
  *
  * TODO: fix memory leaks
  */
-sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, bool resume)
+sos_thread_t *thread_create_generic(thread_main_f function, void *arg, seL4_Word badge, bool resume,
+                            seL4_Word prio, seL4_CPtr bound_ntfn)
 {
     /* we allocate stack for additional sos threads
      * on top of the stack for sos */
     static seL4_Word curr_ipc_buf = SOS_IPC_BUFFER;
 
-    ZF_LOGE("AAAAAAAAAAAAAA Creating SOS thread");
+    ZF_LOGE("Creating SOS thread");
 
     sos_thread_t *new_thread = malloc(sizeof(*new_thread));
     if (new_thread == NULL) {
@@ -185,12 +203,21 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
      * In MCS, fault end point needed here should be in current thread's cspace.
      * NOTE this will use the unbadged ep unlike above, you might want to mint it with a badge
      * so you can identify which thread faulted in your fault handler */
-    err = seL4_TCB_SetSchedParams(new_thread->tcb, seL4_CapInitThreadTCB, seL4_MinPrio,
-                                  SOS_THREAD_PRIORITY, new_thread->sched_context,
+    err = seL4_TCB_SetSchedParams(new_thread->tcb, seL4_CapInitThreadTCB, prio,
+                                  prio, new_thread->sched_context,
                                   new_thread->user_ep);
     if (err != seL4_NoError) {
         ZF_LOGE("Unable to set scheduling params");
         return NULL;
+    }
+
+    /* Bind a notification to the TCB */
+    if (bound_ntfn != seL4_CapNull) {
+        seL4_Error err = seL4_TCB_BindNotification(new_thread->tcb, bound_ntfn);
+        if (err != seL4_NoError) {
+            ZF_LOGE("Unable to bind notification");
+            return NULL;
+        }
     }
 
     /* Provide a name for the thread -- Helpful for debugging */
