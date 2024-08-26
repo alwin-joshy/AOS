@@ -189,9 +189,10 @@ static void gdb_event_loop() {
             suspend_system();
         }
         resume = gdb_handle_packet(input, output);
-        put_packet(output, eventState_waitingForInputEventLoop);
-        /* If it's a ctype_continue or ctype_sss, we whould resume the system (once we are in the standard event loop)*/
-        if (resume) {
+        if (!resume) {
+	        put_packet(output, eventState_waitingForInputEventLoop);
+        } else {
+	        /* If it's a ctype_continue or ctype_sss, we whould resume the system (once we are in the standard event loop)*/
             resume_system();
         }
     }
