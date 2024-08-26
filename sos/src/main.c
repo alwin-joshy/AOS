@@ -42,6 +42,7 @@
 #include "utils.h"
 #include "threads.h"
 #include "debugger.h"
+#include <sos/gen_config.h>
 
 #include <aos/vsyscall.h>
 
@@ -141,7 +142,7 @@ seL4_MessageInfo_t handle_syscall(UNUSED seL4_Word badge, UNUSED int num_args, b
 NORETURN void syscall_loop(seL4_CPtr ep)
 {
     seL4_CPtr reply;
-    
+
     /* Create reply object */
     ut_t *reply_ut = alloc_retype(&reply, seL4_ReplyObject, seL4_ReplyBits);
     if (reply_ut == NULL) {
@@ -549,33 +550,6 @@ void init_muslc(void)
     muslcsys_install_syscall(__NR_madvise, sys_madvise);
 }
 
-void blah(struct network_console *nconn, char c) {
-
-}
-
-struct UARTRecvBuf {
-    unsigned int head;
-    unsigned int tail;
-    char data[2048];
-};
-
-
-int serial_rcv_callback(void *data, seL4_Word irq, seL4_IRQHandler irq_handler) {
-    printf("hello there\n");
-}
-
-void serial_rcv_init() {
-    seL4_Error err = map_frame(&cspace, seL4_CapUARTRecvBuffer, seL4_CapInitThreadVSpace,
-                               (seL4_Word) uart_recv_buf, seL4_AllRights, seL4_ARM_Default_VMAttributes);
-    ZF_LOGF_IFERR(err, "Failed to map uart recieve buffer");
-
-
-    seL4_IRQHandler irq_handler = 0;
-    int init_irq_err = sos_register_irq_handler(0xfff, false, serial_rcv_callback, NULL, &irq_handler);
-    ZF_LOGF_IF(init_irq_err != 0, "Failed to initialise IRQ");
-    seL4_IRQHandler_Ack(irq_handler);
-}
-
 NORETURN void *main_continued(UNUSED void *arg)
 {
     /* Initialise other system compenents here */
@@ -588,6 +562,16 @@ NORETURN void *main_continued(UNUSED void *arg)
         IRQ_EP_BADGE,
         IRQ_IDENT_BADGE_BITS
     );
+
+#ifdef CONFIG_SOS_GDB_ENABLED
+    /* Create an endpoint that the GDB threads listens to */
+    seL4_CPtr recv_ep;
+    ut_t *ep_ut = alloc_retype(&recv_ep, seL4_EndpointObject, seL4_EndpointBits);
+    ZF_LOGF_IF(ep_ut == NULL, "Failed to create GDB endpoint");
+    init_threads(recv_ep, sched_ctrl_start, sched_ctrl_end);
+#else
+    init_threads(ipc_ep, sched_ctrl_start, sched_ctrl_end);
+#endif /* CONFIG_SOS_GDB_ENABLED */
     frame_table_init(&cspace, seL4_CapInitThreadVSpace);
 
     /* run sos initialisation tests */
@@ -598,22 +582,19 @@ NORETURN void *main_continued(UNUSED void *arg)
      * so touching the watchdog timers here is not recommended!) */
     void *timer_vaddr = sos_map_device(&cspace, PAGE_ALIGN_4K(TIMER_MAP_BASE), PAGE_SIZE_4K);
 
-    /* Initialize the serial */
-    serial_rcv_init();
-
     /* Initialise the network hardware. */
     printf("Network init\n");
     network_init(&cspace, timer_vaddr, ntfn);
 
+#ifdef CONFIG_SOS_GDB_ENABLED
     /* Initialize the debugger */
     printf("Debugger init\n");
-    debugger_init();
+    seL4_Error err = debugger_init(&cspace, seL4_CapIRQControl, recv_ep);
+    ZF_LOGF_IF(err, "Failed to initialize debugger %d", err);
 
-    /* Initialize the netconn */
-    printf("Netconn init\n");
-    struct network_console *nconn = network_console_init();
-
-    network_console_register_handler(nconn, blah);
+    // sos_thread_t *test_thread = spawn(test, NULL, 1, true);
+    // ZF_LOGF_IF(!test_thread, "Failed to start new thread");
+#endif /* CONFIG_SOS_GDB_ENABLED */
 
     /* Initialises the timer */
     printf("Timer init\n");
@@ -621,18 +602,12 @@ NORETURN void *main_continued(UNUSED void *arg)
     /* You will need to register an IRQ handler for the timer here.
      * See "irq.h". */
 
-
-    /* Start the debugger thread */
-    thread_create(debugger_main, )
-
-
     /* Start the user application */
     printf("Start first process\n");
     bool success = start_first_process(APP_NAME, ipc_ep);
     ZF_LOGF_IF(!success, "Failed to start first process");
 
     printf("\nSOS entering syscall loop\n");
-    init_threads(ipc_ep, sched_ctrl_start, sched_ctrl_end);
     syscall_loop(ipc_ep);
 }
 /*

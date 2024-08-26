@@ -22,7 +22,7 @@
 #include "utils.h"
 #include "mapping.h"
 
-#define SOS_THREAD_PRIORITY     (0)
+#define SOS_THREAD_PRIORITY     (100)
 
 __thread sos_thread_t *current_thread = NULL;
 
@@ -75,39 +75,32 @@ int thread_resume(sos_thread_t *thread)
 }
 
 /* trampoline code for newly started thread */
-static void thread_trampoline(sos_thread_t *thread, thread_main_f *function, void *arg)
+static void thread_trampoline(sos_thread_t *thread, thread_main_f *function, void *arg, bool debugger_add)
 {
     sel4runtime_set_tls_base(thread->tls_base);
     seL4_SetIPCBuffer((seL4_IPCBuffer *) thread->ipc_buffer_vaddr);
     current_thread = thread;
-    /* @alwin: Register to GDB */
+#ifdef CONFIG_SOS_GDB_ENABLED
+    if (debugger_add) {
+        printf("About to register debugger thread\n");
+        debugger_register_thread(ipc_ep, thread->badge, thread->tcb);
+    }
+#endif /* CONFIG_SOS_GDB_ENABLED */
     function(arg);
-    /* @alwin: Deregister from GDB */
+#ifdef CONFIG_SOS_GDB_ENABLED
+    if (debugger_add) {
+        debugger_deregister_thread(ipc_ep, thread->badge);
+    }
+#endif /* CONFIG_SOS_GDB_ENABLED */
     thread_suspend(thread);
 }
-
-
-sos_thread_t *debugger_thread_create(thread_main_f function, void *arg, seL4_Word badge,
-                                     bool resume, seL4_CPtr bound_ntfn)
-{
-
-    thread_create_generic(function, arg, badge, resume, seL4_MaxPrio, bound_ntfn);
-
-}
-
-sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, bool resume)
-{
-    thread_create_generic(function, arg, badge, resume, SOS_THREAD_PRIORITY, 0);
-}
-
-
 /*
  * Spawn a new kernel (SOS) thread to execute function with arg
  *
  * TODO: fix memory leaks
  */
-sos_thread_t *thread_create_generic(thread_main_f function, void *arg, seL4_Word badge, bool resume,
-                            seL4_Word prio, seL4_CPtr bound_ntfn)
+sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, bool resume,
+                            seL4_Word prio, seL4_CPtr bound_ntfn, bool debugger_add)
 {
     /* we allocate stack for additional sos threads
      * on top of the stack for sos */
@@ -246,6 +239,7 @@ sos_thread_t *thread_create_generic(thread_main_f function, void *arg, seL4_Word
         .x0 = (seL4_Word) new_thread,
         .x1 = (seL4_Word) function,
         .x2 = (seL4_Word) arg,
+        .x3 = (seL4_Word) debugger_add,
     };
     ZF_LOGD(resume ? "Starting new sos thread at %p\n"
             : "Created new thread starting at %p\n", (void *) context.pc);
@@ -258,7 +252,14 @@ sos_thread_t *thread_create_generic(thread_main_f function, void *arg, seL4_Word
     return new_thread;
 }
 
-sos_thread_t *spawn(thread_main_f function, void *arg, seL4_Word badge)
+sos_thread_t *debugger_spawn(thread_main_f function, void *arg, seL4_Word badge, seL4_CPtr bound_ntfn)
 {
-    return thread_create(function, arg, badge, true);
+    return thread_create(function, arg, badge, true, seL4_MaxPrio, bound_ntfn, false);
+}
+
+
+/* The debugger_add argument registers this thread with GDB. If GDB is not enabled, it does nothing*/
+sos_thread_t *spawn(thread_main_f function, void *arg, seL4_Word badge, bool debugger_add)
+{
+    return thread_create(function, arg, badge, true, SOS_THREAD_PRIORITY, 0, debugger_add);
 }

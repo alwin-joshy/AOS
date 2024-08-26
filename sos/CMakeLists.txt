@@ -19,6 +19,8 @@ config_string(SosGateway SOS_GATEWAY "Gateway IP address" DEFAULT "192.168.168.1
 
 config_string(SosFrameLimit SOS_FRAME_LIMIT "Frame table frame limit" UNQUOTE DEFAULT "0ul")
 
+config_option(SosGDBSupport SOS_GDB_ENABLED "Debugger support" DEFAULT OFF)
+
 add_config_library(sos "${configure_string}")
 
 # warn about everything
@@ -58,6 +60,7 @@ add_executable(
     src/sos.lds
     src/utils.c
     src/threads.c
+    src/debugger.c
 )
 target_include_directories(sos PRIVATE "include")
 target_link_libraries(
@@ -79,6 +82,8 @@ target_link_libraries(
     nfs
     ethernet
     sos_Config
+    gdb
+    libco
 )
 
 set_property(
