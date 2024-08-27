@@ -23,6 +23,7 @@ typedef struct {
     seL4_CPtr tcb;
 
     seL4_CPtr user_ep;
+    seL4_CPtr fault_ep;
     ut_t *ipc_buffer_ut;
     seL4_CPtr ipc_buffer;
     seL4_Word ipc_buffer_vaddr;

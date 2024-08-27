@@ -12,7 +12,6 @@
 #include "mapping.h"
 
 #define IRQ_BIT BIT(63)
-#define FAULT_BIT BIT(62)
 #define MAX_DEBUGGER_THREADS 64
 
 
@@ -207,7 +206,7 @@ void notify_gdb() {
 }
 
 
-seL4_MessageInfo_t handle_debugger_register(seL4_Word badge, seL4_CPtr tcb) {
+void handle_debugger_register(seL4_Word badge, seL4_CPtr tcb) {
 	/* Register the thread as an inferior */
 	gdb_thread_t *thread = gdb_register_thread(sos_inferior, badge, tcb);
 
@@ -219,8 +218,17 @@ seL4_MessageInfo_t handle_debugger_register(seL4_Word badge, seL4_CPtr tcb) {
 
 	t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
 	co_switch(t_invocation);
+}
 
-	return seL4_MessageInfo_new(0, 0, 0, 0);
+void handle_debugger_deregister(gdb_thread_t *thread) {
+
+	/* Remove the thread from GDB */
+	gdb_thread_exit(thread, output);
+
+	suspend_system();
+
+	t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
+	co_switch(t_invocation);
 }
 
 
@@ -253,11 +261,11 @@ void seL4_event_loop() {
         		co_switch(t_invocation);
     		}
     		have_reply = false;
-		} else if (badge & FAULT_BIT) {
+		} else if (badge & DEBUGGER_FAULT_BIT) {
     		suspend_system();
 
 			seL4_Word reply_mr = 0;
-			seL4_Word id = badge & ~FAULT_BIT;
+			seL4_Word id = badge & ~DEBUGGER_FAULT_BIT;
 
 			gdb_thread_t *faulting_thread = NULL;
 			for (int i = 0; i < 256; i++) {
@@ -293,12 +301,22 @@ void seL4_event_loop() {
 					handle_debugger_register(id, tcb);
 				}
 
-				reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
 			} else if (label == LABEL_DEBUGGER_DEREGISTER) {
-				printf("Got a debugger deregister\n");
-				// @alwin: todo
+				seL4_Word id = seL4_GetMR(0);
+
+				int i = 0;
+				for (; i < MAX_DEBUGGER_THREADS; i++) {
+					if (id == sos_inferior->threads[i].id) {
+						break;
+					}
+				}
+
+				if (i != MAX_DEBUGGER_THREADS) {
+					handle_debugger_deregister(&sos_inferior->threads[i]);
+				}
 			}
 
+			reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
 			have_reply = true;
 		}
 	}
@@ -323,6 +341,11 @@ void debugger_register_thread(seL4_CPtr ep, seL4_Word badge, seL4_CPtr tcb) {
 	seL4_MessageInfo_t msginfo = seL4_MessageInfo_new(LABEL_DEBUGGER_REGISTER, 0, 0, 2);
 	seL4_SetMR(0, badge);
 	seL4_SetMR(1, tcb);
+
+	/* Somewhat annoyingly, this call gets executed twice as this thread must be suspended,
+	   which cancels the call operation and has it be reattempted when the thread is resumed.
+	   If you are not careful with writing the debugger thread to handle this gracefully, it
+	   can result in an infinite loop */
 	msginfo = seL4_Call(ep, msginfo);
 }
 
@@ -402,16 +425,8 @@ seL4_Error debugger_init(cspace_t *cspace, seL4_IRQControl irq_control, seL4_CPt
 		.reply = reply
 	};
 
-	// @alwin: fix badge
-	debugger_thread = debugger_spawn(debugger_main, NULL, 0, bound_ntfn);
-	if (debugger_thread == NULL) {
-		// @alwin: Fix return error
-		return ENOMEM;
-	}
-
-
 	/* Mint a fault endpoint for the main SOS thread */
-	badge = FAULT_BIT;
+	badge = DEBUGGER_FAULT_BIT;
 	seL4_CPtr badged_fault_ep = cspace_alloc_slot(cspace);
 	if (badged_fault_ep == 0) {
 		return ENOMEM;
@@ -420,11 +435,16 @@ seL4_Error debugger_init(cspace_t *cspace, seL4_IRQControl irq_control, seL4_CPt
 	 cspace_mint(cspace, badged_fault_ep, cspace, recv_ep, seL4_AllRights, badge);
 
 	/* Set the priority of the main SOS thread to maxprio - 1 and
-	   set its fault handler to be a badged version of the GDB endpoint */
-	 err = seL4_TCB_SetSchedParams(seL4_CapInitThreadTCB, seL4_CapInitThreadTCB, seL4_MaxPrio - 1,
+   	   set its fault handler to be a badged version of the GDB endpoint */
+	 err = seL4_TCB_SetSchedParams(seL4_CapInitThreadTCB, seL4_CapInitThreadTCB, seL4_MaxPrio,
 	 							   seL4_MaxPrio - 1, seL4_CapInitThreadSC, badged_fault_ep);
 
-
+	// @alwin: fix badge
+	debugger_thread = debugger_spawn(debugger_main, NULL, 0, bound_ntfn);
+	if (debugger_thread == NULL) {
+		// @alwin: Fix return error
+		return ENOMEM;
+	}
 
 	return seL4_NoError;
 }

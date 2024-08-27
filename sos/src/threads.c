@@ -22,6 +22,7 @@
 #include "vmem_layout.h"
 #include "utils.h"
 #include "mapping.h"
+#include "debugger.h"
 
 #define SOS_THREAD_PRIORITY     (100)
 
@@ -194,9 +195,34 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
      * In MCS, fault end point needed here should be in current thread's cspace.
      * NOTE this will use the unbadged ep unlike above, you might want to mint it with a badge
      * so you can identify which thread faulted in your fault handler */
+    #ifdef CONFIG_SOS_GDB_ENABLED
+        if (debugger_add) {
+            if (badge & DEBUGGER_FAULT_BIT) {
+                ZF_LOGE("Badge conflicts with acceptable debugger format");
+                return NULL;
+            }
+
+            new_thread->fault_ep = cspace_alloc_slot(&cspace);
+            if (!new_thread->fault_ep) {
+                ZF_LOGE("Failed to allocate slot for fault endpoint");
+                return NULL;
+            }
+
+            err = cspace_mint(&cspace, new_thread->fault_ep, &cspace, ipc_ep, seL4_AllRights,
+                                        badge | DEBUGGER_FAULT_BIT);
+            if (err) {
+                ZF_LOGE("Failed to mint user ep");
+                return NULL;
+            }
+        } else {
+            new_thread->fault_ep = new_thread->user_ep;
+        }
+    #else
+        new_thread->fault_ep = new_thread->user_ep;
+    #endif
     err = seL4_TCB_SetSchedParams(new_thread->tcb, seL4_CapInitThreadTCB, prio,
                                   prio, new_thread->sched_context,
-                                  new_thread->user_ep);
+                                  new_thread->fault_ep);
     if (err != seL4_NoError) {
         ZF_LOGE("Unable to set scheduling params");
         return NULL;
