@@ -550,6 +550,10 @@ void init_muslc(void)
     muslcsys_install_syscall(__NR_madvise, sys_madvise);
 }
 
+void test(void *hello) {
+    printf("blah i am test :p\n");
+}
+
 NORETURN void *main_continued(UNUSED void *arg)
 {
     /* Initialise other system compenents here */
@@ -592,8 +596,8 @@ NORETURN void *main_continued(UNUSED void *arg)
     seL4_Error err = debugger_init(&cspace, seL4_CapIRQControl, recv_ep);
     ZF_LOGF_IF(err, "Failed to initialize debugger %d", err);
 
-    // sos_thread_t *test_thread = spawn(test, NULL, 1, true);
-    // ZF_LOGF_IF(!test_thread, "Failed to start new thread");
+    sos_thread_t *test_thread = spawn(test, NULL, 1, true);
+    ZF_LOGF_IF(!test_thread, "Failed to start new thread");
 #endif /* CONFIG_SOS_GDB_ENABLED */
 
     /* Initialises the timer */

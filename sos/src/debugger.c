@@ -210,6 +210,11 @@ void notify_gdb() {
 seL4_MessageInfo_t handle_debugger_register(seL4_Word badge, seL4_CPtr tcb) {
 	/* Register the thread as an inferior */
 	gdb_thread_t *thread = gdb_register_thread(sos_inferior, badge, tcb);
+
+	/* We suspend the system here (after adding the new thread).
+	   This is fine on single-core. */
+	suspend_system();
+
 	gdb_thread_spawn(thread, output);
 
 	t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
@@ -271,12 +276,26 @@ void seL4_event_loop() {
 				reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
 			}
 		} else {
-			suspend_system();
-
 			assert(badge == 0);
 			if (label == LABEL_DEBUGGER_REGISTER) {
-				reply_msg = handle_debugger_register(seL4_GetMR(0), seL4_GetMR(1));
+				seL4_Word id = seL4_GetMR(0);
+				seL4_CPtr tcb = seL4_GetMR(1);
+
+				int i = 0;
+				for (; i < MAX_DEBUGGER_THREADS; i++) {
+					if (id == sos_inferior->threads[i].id) {
+						break;
+					}
+				}
+
+				/* We only register if this ID has not been registered before */
+				if (i == MAX_DEBUGGER_THREADS) {
+					handle_debugger_register(id, tcb);
+				}
+
+				reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
 			} else if (label == LABEL_DEBUGGER_DEREGISTER) {
+				printf("Got a debugger deregister\n");
 				// @alwin: todo
 			}
 
@@ -300,14 +319,14 @@ void debugger_main(void *data) {
 	gdb_event_loop();
 }
 
-void debugger_register(seL4_CPtr ep, seL4_Word badge, seL4_CPtr tcb) {
+void debugger_register_thread(seL4_CPtr ep, seL4_Word badge, seL4_CPtr tcb) {
 	seL4_MessageInfo_t msginfo = seL4_MessageInfo_new(LABEL_DEBUGGER_REGISTER, 0, 0, 2);
 	seL4_SetMR(0, badge);
-	seL4_SetMR(1, badge);
+	seL4_SetMR(1, tcb);
 	msginfo = seL4_Call(ep, msginfo);
 }
 
-void debugger_deregister(seL4_CPtr ep, seL4_Word badge) {
+void debugger_deregister_thread(seL4_CPtr ep, seL4_Word badge) {
 	seL4_MessageInfo_t msginfo = seL4_MessageInfo_new(LABEL_DEBUGGER_DEREGISTER, 0, 0, 1);
 	seL4_SetMR(0, badge);
 	msginfo = seL4_Call(ep, msginfo);

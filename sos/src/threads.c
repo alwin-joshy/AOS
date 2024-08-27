@@ -16,6 +16,7 @@
 #include <sel4runtime.h>
 #include <aos/debug.h>
 #include <cspace/cspace.h>
+#include <sos/gen_config.h>
 
 #include "ut.h"
 #include "vmem_layout.h"
@@ -82,7 +83,6 @@ static void thread_trampoline(sos_thread_t *thread, thread_main_f *function, voi
     current_thread = thread;
 #ifdef CONFIG_SOS_GDB_ENABLED
     if (debugger_add) {
-        printf("About to register debugger thread\n");
         debugger_register_thread(ipc_ep, thread->badge, thread->tcb);
     }
 #endif /* CONFIG_SOS_GDB_ENABLED */
@@ -105,8 +105,6 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
     /* we allocate stack for additional sos threads
      * on top of the stack for sos */
     static seL4_Word curr_ipc_buf = SOS_IPC_BUFFER;
-
-    ZF_LOGE("Creating SOS thread");
 
     sos_thread_t *new_thread = malloc(sizeof(*new_thread));
     if (new_thread == NULL) {
@@ -244,7 +242,7 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
     ZF_LOGD(resume ? "Starting new sos thread at %p\n"
             : "Created new thread starting at %p\n", (void *) context.pc);
     fflush(NULL);
-    err = seL4_TCB_WriteRegisters(new_thread->tcb, resume, 0, 6, &context);
+    err = seL4_TCB_WriteRegisters(new_thread->tcb, resume, 0, 7, &context);
     if (err != seL4_NoError) {
         ZF_LOGE("Failed to write registers");
         return NULL;
