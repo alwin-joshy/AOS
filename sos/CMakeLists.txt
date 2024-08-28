@@ -72,7 +72,6 @@ target_link_libraries(
     elf
     cpio
     networkconsole
-	debugger
     clock
     sel4cspace
     aos
