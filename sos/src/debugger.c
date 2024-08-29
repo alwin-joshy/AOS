@@ -275,6 +275,10 @@ void seL4_event_loop() {
 				}
 			}
 
+    		if (label != seL4_Fault_DebugException) {
+	    		debug_print_fault(message, "");
+    		}
+
 			have_reply = gdb_handle_fault(faulting_thread, label, &reply_mr, output);
 
 			t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
