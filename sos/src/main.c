@@ -552,6 +552,8 @@ void init_muslc(void)
 
 void test(void *hello) {
     printf("blah i am test :p\n");
+    while (true) {
+    }
 }
 
 NORETURN void *main_continued(UNUSED void *arg)

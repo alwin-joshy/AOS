@@ -46,6 +46,7 @@ typedef struct debugger_data {
 static debugger_data_t debugger_data = {};
 static sos_thread_t *debugger_thread = NULL;
 static event_state_t state = eventState_none;
+static bool detached = false;
 
 struct UARTRecvBuf {
     unsigned int head;
@@ -183,14 +184,18 @@ static void gdb_event_loop() {
     /* The event loop runs perpetually if we are in the standard event loop phase */
     while (true) {
         char *input = get_packet(eventState_waitingForInputEventLoop);
-        if (input[0] == 3) {
+        if (detached || input[0] == 3) {
             /* If we got a ctrl-c packet, we should suspend the whole system */
             suspend_system();
+            detached = false;
         }
-        resume = gdb_handle_packet(input, output);
-        if (!resume) {
+        resume = gdb_handle_packet(input, output, &detached);
+
+        if (!resume || detached) {
 	        put_packet(output, eventState_waitingForInputEventLoop);
-        } else {
+        }
+
+        if (resume) {
 	        /* If it's a ctype_continue or ctype_sss, we whould resume the system (once we are in the standard event loop)*/
             resume_system();
         }
@@ -209,15 +214,15 @@ void notify_gdb() {
 void handle_debugger_register(seL4_Word badge, seL4_CPtr tcb) {
 	/* Register the thread as an inferior */
 	gdb_thread_t *thread = gdb_register_thread(sos_inferior, badge, tcb);
-
-	/* We suspend the system here (after adding the new thread).
-	   This is fine on single-core. */
-	suspend_system();
-
 	gdb_thread_spawn(thread, output);
 
-	t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
-	co_switch(t_invocation);
+	if (!detached) {
+		/* We suspend the system here (after adding the new thread).
+		   This is fine on single-core. */
+		suspend_system();
+		t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
+		co_switch(t_invocation);
+	}
 }
 
 void handle_debugger_deregister(gdb_thread_t *thread) {
@@ -225,13 +230,12 @@ void handle_debugger_deregister(gdb_thread_t *thread) {
 	/* Remove the thread from GDB */
 	gdb_thread_exit(thread, output);
 
-	suspend_system();
-
-	t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
-	co_switch(t_invocation);
+	if (!detached) {
+		suspend_system();
+		t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
+		co_switch(t_invocation);
+	}
 }
-
-
 
 #define LABEL_DEBUGGER_REGISTER 1
 #define LABEL_DEBUGGER_DEREGISTER 2
@@ -262,30 +266,33 @@ void seL4_event_loop() {
     		}
     		have_reply = false;
 		} else if (badge & DEBUGGER_FAULT_BIT) {
-    		suspend_system();
-
 			seL4_Word reply_mr = 0;
 			seL4_Word id = badge & ~DEBUGGER_FAULT_BIT;
-
-			gdb_thread_t *faulting_thread = NULL;
-			for (int i = 0; i < 256; i++) {
-				if (id == sos_inferior->threads[i].id) {
-					faulting_thread = &sos_inferior->threads[i];
-					break;
-				}
-			}
 
     		if (label != seL4_Fault_DebugException) {
 	    		debug_print_fault(message, "");
     		}
 
-			have_reply = gdb_handle_fault(faulting_thread, label, &reply_mr, output);
+    		have_reply = false;
 
-			t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
-			co_switch(t_invocation);
+			if (!detached) {
+	    		suspend_system();
 
-			if (have_reply) {
-				reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
+				gdb_thread_t *faulting_thread = NULL;
+				for (int i = 0; i < 256; i++) {
+					if (id == sos_inferior->threads[i].id) {
+						faulting_thread = &sos_inferior->threads[i];
+						break;
+					}
+				}
+
+				have_reply = gdb_handle_fault(faulting_thread, label, &reply_mr, output);
+				t_invocation = co_derive((void *) t_invocation_stack, STACK_SIZE, notify_gdb);
+				co_switch(t_invocation);
+
+				if (have_reply) {
+					reply_msg = seL4_MessageInfo_new(0, 0, 0, 0);
+				}
 			}
 		} else {
 			assert(badge == 0);
