@@ -276,13 +276,24 @@ sos_thread_t *thread_create(thread_main_f function, void *arg, seL4_Word badge, 
     return new_thread;
 }
 
+/*
+ * Spawn the debugger thread. Should only be called once in debugger_init()
+ */
 sos_thread_t *debugger_spawn(thread_main_f function, void *arg, seL4_Word badge, seL4_CPtr bound_ntfn)
 {
     return thread_create(function, arg, badge, true, seL4_MaxPrio, bound_ntfn, false);
 }
 
 
-/* The debugger_add argument registers this thread with GDB. If GDB is not enabled, it does nothing*/
+/*
+ * Spawn a SOS worker thread
+ *
+ * The debugger_add arg determines if this thread is registered with GDB. If GDB is not enabled,
+ * it does nothing.
+ *
+ * Ensure that the badge you provide is unique (in that no other active thread has it). If you
+ * do not ensure this, you will probably see some weird behaviour in GDB.
+ */
 sos_thread_t *spawn(thread_main_f function, void *arg, seL4_Word badge, bool debugger_add)
 {
     return thread_create(function, arg, badge, true, SOS_THREAD_PRIORITY, 0, debugger_add);
